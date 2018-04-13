@@ -8,7 +8,6 @@ import (
 	"net"
 	"sync"
 	"time"
-
 	"git.apache.org/thrift.git/lib/go/thrift"
 )
 
@@ -23,6 +22,47 @@ const (
 type ThriftCreator func(ip, port string, connTimeout time.Duration, forPool* ThriftPool) (*ThriftSocketClient, error)
 
 type ThriftClientClose func(c *ThriftSocketClient) error
+
+type ClientFactoryGenratedByThrift func(t thrift.TTransport, f thrift.TProtocolFactory) (interface{})
+
+func GetThriftClientCreatorFunc(ClientFactory ClientFactoryGenratedByThrift) ThriftCreator {
+	return func ( host string, port string, connTimeout time.Duration, forPool* ThriftPool) (*ThriftSocketClient, error) {
+		socket, err := thrift.NewTSocketTimeout(fmt.Sprintf("%s:%s", host, port), connTimeout)
+		if err != nil {
+			return nil, err
+		}
+		protocolFactory := thrift.NewTBinaryProtocolFactory(true, true)
+		var transportFactory thrift.TTransportFactory
+	
+		transportFactory = thrift.NewTBufferedTransportFactory(8192)
+	
+		transportFactory = thrift.NewTFramedTransportFactory(transportFactory)
+	
+		transport, _ := transportFactory.GetTransport(socket);
+		client := ClientFactory(transport , protocolFactory)
+	
+		
+		err = transport.Open();
+		if err != nil {
+			fmt.Println(err);
+			return nil, err
+		}
+	
+		return &ThriftSocketClient{
+			Client: client,
+			Socket: socket,
+			Parent: forPool,
+		}, nil		
+	}
+
+}
+
+/* mappool can be create like this:
+	bsMapPool = thriftpool.NewMapPool(1000, 3600, 3600, 
+		thriftpool.GetThriftClientCreatorFunc( func(t thrift.TTransport, f thrift.TProtocolFactory) (interface{}) { return  (bs.NewTStringBigSetKVServiceClientFactory(t,f)) }),
+		Close)
+	)
+*/
 
 type ThriftPool struct {
 	Dial  ThriftCreator
@@ -41,6 +81,7 @@ type ThriftPool struct {
 
 type ThriftSocketClient struct {
 	Socket *thrift.TSocket
+	
 	Client interface{}
 	Parent *ThriftPool
 }
