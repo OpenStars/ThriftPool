@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"git.apache.org/thrift.git/lib/go/thrift"
+
 )
 
 const (
@@ -25,7 +26,7 @@ type ThriftCreator func(ip, port string, connTimeout time.Duration, forPool* Thr
 type ThriftClientClose func(c *ThriftSocketClient) error
 
 type ThriftPool struct {
-	Dial  ThriftCreator
+	CreatorFunc  ThriftCreator
 	Close ThriftClientClose
 
 	lock        *sync.Mutex
@@ -61,7 +62,7 @@ var nowFunc = time.Now
 
 //error
 var (
-	ErrOverMax          = errors.New("Too many connections")
+	ErrOverMax          = errors.New("Too many connections, maximum number of connections exceeded")
 	ErrInvalidConn      = errors.New("Invalid connection")
 	ErrPoolClosed       = errors.New("Pool closed")
 	ErrSocketDisconnect = errors.New("Disconnected connection")
@@ -69,10 +70,10 @@ var (
 
 func NewThriftPool(ip, port string,
 	maxConn, connTimeout, idleTimeout uint32,
-	dial ThriftCreator, closeFunc ThriftClientClose) *ThriftPool {
+	creatorFunc ThriftCreator, closeFunc ThriftClientClose) *ThriftPool {
 
 	thriftPool := &ThriftPool{
-		Dial:        dial,
+		CreatorFunc:        creatorFunc,
 		Close:       closeFunc,
 		ip:          ip,
 		port:        port,
@@ -102,10 +103,10 @@ func (p *ThriftPool) Get() (*ThriftSocketClient, error) {
 	}
 
 	if p.idle.Len() == 0 {
-		dial := p.Dial
+		creatorFunc := p.CreatorFunc
 		p.count += 1
 		p.lock.Unlock()
-		client, err := dial(p.ip, p.port, p.connTimeout, p)
+		client, err := creatorFunc(p.ip, p.port, p.connTimeout, p)
 		if err != nil {
 			p.lock.Lock()
 			p.count -= 1
@@ -272,7 +273,7 @@ func (p *ThriftPool) Recover() {
 	MapPool map enpoint(host:port) to a pool for a specific service
  */
 type MapPool struct {
-	Dial  ThriftCreator
+	CreatorFunc  ThriftCreator
 	Close ThriftClientClose
 
 	lock *sync.Mutex
@@ -285,10 +286,10 @@ type MapPool struct {
 }
 
 func NewMapPool(maxConn, connTimeout, idleTimeout uint32,
-	dial ThriftCreator, closeFunc ThriftClientClose) *MapPool {
+	creatorFunc ThriftCreator, closeFunc ThriftClientClose) *MapPool {
 
 	return &MapPool{
-		Dial:        dial,
+		CreatorFunc:        creatorFunc,
 		Close:       closeFunc,
 		maxConn:     maxConn,
 		idleTimeout: idleTimeout,
@@ -320,7 +321,7 @@ func (mp *MapPool) Get(ip, port string) *ThriftPool {
 			mp.maxConn,
 			mp.connTimeout,
 			mp.idleTimeout,
-			mp.Dial,
+			mp.CreatorFunc,
 			mp.Close,
 		)
 		mp.lock.Lock()
