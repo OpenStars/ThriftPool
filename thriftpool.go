@@ -58,6 +58,14 @@ func GetThriftClientCreatorFunc(ClientFactory ClientFactoryGenratedByThrift) Thr
 
 }
 
+/*
+	Default Close Function for thrift client
+*/
+func DefaultClose(c *ThriftSocketClient) error {
+	err := c.Socket.Close()
+	return err
+}	
+
 /* mappool can be create like this:
 	bsMapPool = thriftpool.NewMapPool(1000, 3600, 3600, 
 		thriftpool.GetThriftClientCreatorFunc( func(t thrift.TTransport, f thrift.TProtocolFactory) (interface{}) { return  (bs.NewTStringBigSetKVServiceClientFactory(t,f)) }),
