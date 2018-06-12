@@ -24,8 +24,11 @@ type ThriftCreator func(ip, port string, connTimeout time.Duration, forPool* Thr
 
 type ThriftClientClose func(c *ThriftSocketClient) error
 
-type ClientFactoryGenratedByThrift func(t thrift.TTransport, f thrift.TProtocolFactory) (interface{})
+type oldClientFactoryGenratedByThrift func(t thrift.TTransport, f thrift.TProtocolFactory) (interface{})
 
+type ClientFactoryGenratedByThrift func(c thrift.TClient) (interface{})
+
+//GetThriftClientCreatorFunc creator function for creating mappool with binary protocol
 func GetThriftClientCreatorFunc(ClientFactory ClientFactoryGenratedByThrift) ThriftCreator {
 	return func ( host string, port string, connTimeout time.Duration, forPool* ThriftPool) (*ThriftSocketClient, error) {
 		socket, err := thrift.NewTSocketTimeout(fmt.Sprintf("%s:%s", host, port), connTimeout)
@@ -40,7 +43,11 @@ func GetThriftClientCreatorFunc(ClientFactory ClientFactoryGenratedByThrift) Thr
 		transportFactory = thrift.NewTFramedTransportFactory(transportFactory)
 	
 		transport, _ := transportFactory.GetTransport(socket);
-		client := ClientFactory(transport , protocolFactory)
+
+		// c := thrift.NewTStandardClient(transport , protocolFactory)
+		c := thrift.NewTStandardClient(protocolFactory.GetProtocol(transport)  , protocolFactory.GetProtocol(transport) )
+		
+		client := ClientFactory(c)
 	
 		
 		err = transport.Open();
@@ -68,10 +75,44 @@ func DefaultClose(c *ThriftSocketClient) error {
 
 /* mappool can be create like this:
 	bsMapPool = thriftpool.NewMapPool(1000, 3600, 3600, 
-		thriftpool.GetThriftClientCreatorFunc( func(t thrift.TTransport, f thrift.TProtocolFactory) (interface{}) { return  (bs.NewTStringBigSetKVServiceClientFactory(t,f)) }),
+		thriftpool.GetThriftClientCreatorFunc( func(c  thrift.TClient) (interface{}) { return  (bs.NewKVStepCounterServiceClient(c)) }),
 		Close)
 	)
 */
+//GetThriftClientCreatorFuncCompactProtocol creator function for creating mappool with compact protocol
+func GetThriftClientCreatorFuncCompactProtocol(ClientFactory ClientFactoryGenratedByThrift) ThriftCreator {
+	return func ( host string, port string, connTimeout time.Duration, forPool* ThriftPool) (*ThriftSocketClient, error) {
+		socket, err := thrift.NewTSocketTimeout(fmt.Sprintf("%s:%s", host, port), connTimeout)
+		if err != nil {
+			return nil, err
+		}
+		protocolFactory := thrift.NewTCompactProtocolFactory()
+		var transportFactory thrift.TTransportFactory
+	
+		transportFactory = thrift.NewTBufferedTransportFactory(8192)
+	
+		transportFactory = thrift.NewTFramedTransportFactory(transportFactory)
+	
+		transport, _ := transportFactory.GetTransport(socket);
+
+		c := thrift.NewTStandardClient(protocolFactory.GetProtocol(transport)  , protocolFactory.GetProtocol(transport) )
+		client := ClientFactory(c)
+	
+		
+		err = transport.Open();
+		if err != nil {
+			fmt.Println(err);
+			return nil, err
+		}
+	
+		return &ThriftSocketClient{
+			Client: client,
+			Socket: socket,
+			Parent: forPool,
+		}, nil		
+	}
+
+}
 
 type ThriftPool struct {
 	CreatorFunc  ThriftCreator
