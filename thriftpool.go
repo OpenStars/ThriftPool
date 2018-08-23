@@ -8,6 +8,7 @@ import (
 	"net"
 	"sync"
 	"time"
+	"strings"
 	"git.apache.org/thrift.git/lib/go/thrift"
 
 )
@@ -60,6 +61,7 @@ func GetThriftClientCreatorFunc(ClientFactory ClientFactoryGenratedByThrift) Thr
 			Client: client,
 			Socket: socket,
 			Parent: forPool,
+			LostConnection: false,
 		}, nil		
 	}
 
@@ -109,6 +111,7 @@ func GetThriftClientCreatorFuncCompactProtocol(ClientFactory ClientFactoryGenrat
 			Client: client,
 			Socket: socket,
 			Parent: forPool,
+			LostConnection: false,
 		}, nil		
 	}
 
@@ -134,13 +137,21 @@ type ThriftSocketClient struct {
 	
 	Client interface{}
 	Parent *ThriftPool
+	LostConnection bool
 }
 
 //Client can return itself to pool without caring about which pool is managing it
 func (pClient* ThriftSocketClient) BackToPool() {
-	if (pClient.Parent != nil) {
+	if (pClient.Parent != nil && pClient.LostConnection == false) {
 		pClient.Parent.Put(pClient);
 	}
+}
+
+func (pClient* ThriftSocketClient) VerifyConnection(errMsg *string) {
+	if strings.Contains(*errMsg, "EOF") || strings.Contains(*errMsg,"broken pipe") {
+		fmt.Printf("thrift socket lost connection: %v , err: %s \n", pClient.Socket.Addr().String(), *errMsg)
+	}
+	pClient.LostConnection = true;
 }
 
 type idleConn struct {
