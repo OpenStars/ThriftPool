@@ -5,12 +5,13 @@ import (
 	"container/list"
 	"errors"
 	"fmt"
+	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
-	"strings"
-	"git.apache.org/thrift.git/lib/go/thrift"
 
+	"git.apache.org/thrift.git/lib/go/thrift"
 )
 
 const (
@@ -21,48 +22,47 @@ const (
 /*
 * forPool : parent pool of this client
  */
-type ThriftCreator func(ip, port string, connTimeout time.Duration, forPool* ThriftPool) (*ThriftSocketClient, error)
+type ThriftCreator func(ip, port string, connTimeout time.Duration, forPool *ThriftPool) (*ThriftSocketClient, error)
 
 type ThriftClientClose func(c *ThriftSocketClient) error
 
-type oldClientFactoryGenratedByThrift func(t thrift.TTransport, f thrift.TProtocolFactory) (interface{})
+type oldClientFactoryGenratedByThrift func(t thrift.TTransport, f thrift.TProtocolFactory) interface{}
 
-type ClientFactoryGenratedByThrift func(c thrift.TClient) (interface{})
+type ClientFactoryGenratedByThrift func(c thrift.TClient) interface{}
 
 //GetThriftClientCreatorFunc creator function for creating mappool with binary protocol
 func GetThriftClientCreatorFunc(ClientFactory ClientFactoryGenratedByThrift) ThriftCreator {
-	return func ( host string, port string, connTimeout time.Duration, forPool* ThriftPool) (*ThriftSocketClient, error) {
+	return func(host string, port string, connTimeout time.Duration, forPool *ThriftPool) (*ThriftSocketClient, error) {
 		socket, err := thrift.NewTSocketTimeout(fmt.Sprintf("%s:%s", host, port), connTimeout)
 		if err != nil {
 			return nil, err
 		}
 		protocolFactory := thrift.NewTBinaryProtocolFactory(true, true)
 		var transportFactory thrift.TTransportFactory
-	
+
 		transportFactory = thrift.NewTBufferedTransportFactory(8192)
-	
+
 		transportFactory = thrift.NewTFramedTransportFactory(transportFactory)
-	
-		transport, _ := transportFactory.GetTransport(socket);
+
+		transport, _ := transportFactory.GetTransport(socket)
 
 		// c := thrift.NewTStandardClient(transport , protocolFactory)
-		c := thrift.NewTStandardClient(protocolFactory.GetProtocol(transport)  , protocolFactory.GetProtocol(transport) )
-		
+		c := thrift.NewTStandardClient(protocolFactory.GetProtocol(transport), protocolFactory.GetProtocol(transport))
+
 		client := ClientFactory(c)
-	
-		
-		err = transport.Open();
+
+		err = transport.Open()
 		if err != nil {
-			fmt.Println(err);
+			log.Println("GetThriftClientCreatorFunc err:", err)
 			return nil, err
 		}
-	
+
 		return &ThriftSocketClient{
-			Client: client,
-			Socket: socket,
-			Parent: forPool,
+			Client:         client,
+			Socket:         socket,
+			Parent:         forPool,
 			LostConnection: false,
-		}, nil		
+		}, nil
 	}
 
 }
@@ -73,53 +73,52 @@ func GetThriftClientCreatorFunc(ClientFactory ClientFactoryGenratedByThrift) Thr
 func DefaultClose(c *ThriftSocketClient) error {
 	err := c.Socket.Close()
 	return err
-}	
+}
 
 /* mappool can be create like this:
-	bsMapPool = thriftpool.NewMapPool(1000, 3600, 3600, 
-		thriftpool.GetThriftClientCreatorFunc( func(c  thrift.TClient) (interface{}) { return  (bs.NewKVStepCounterServiceClient(c)) }),
-		Close)
-	)
+bsMapPool = thriftpool.NewMapPool(1000, 3600, 3600,
+	thriftpool.GetThriftClientCreatorFunc( func(c  thrift.TClient) (interface{}) { return  (bs.NewKVStepCounterServiceClient(c)) }),
+	Close)
+)
 */
 //GetThriftClientCreatorFuncCompactProtocol creator function for creating mappool with compact protocol
 func GetThriftClientCreatorFuncCompactProtocol(ClientFactory ClientFactoryGenratedByThrift) ThriftCreator {
-	return func ( host string, port string, connTimeout time.Duration, forPool* ThriftPool) (*ThriftSocketClient, error) {
+	return func(host string, port string, connTimeout time.Duration, forPool *ThriftPool) (*ThriftSocketClient, error) {
 		socket, err := thrift.NewTSocketTimeout(fmt.Sprintf("%s:%s", host, port), connTimeout)
 		if err != nil {
 			return nil, err
 		}
 		protocolFactory := thrift.NewTCompactProtocolFactory()
 		var transportFactory thrift.TTransportFactory
-	
-		transportFactory = thrift.NewTBufferedTransportFactory(8192)
-	
-		transportFactory = thrift.NewTFramedTransportFactory(transportFactory)
-	
-		transport, _ := transportFactory.GetTransport(socket);
 
-		c := thrift.NewTStandardClient(protocolFactory.GetProtocol(transport)  , protocolFactory.GetProtocol(transport) )
+		transportFactory = thrift.NewTBufferedTransportFactory(8192)
+
+		transportFactory = thrift.NewTFramedTransportFactory(transportFactory)
+
+		transport, _ := transportFactory.GetTransport(socket)
+
+		c := thrift.NewTStandardClient(protocolFactory.GetProtocol(transport), protocolFactory.GetProtocol(transport))
 		client := ClientFactory(c)
-	
-		
-		err = transport.Open();
+
+		err = transport.Open()
 		if err != nil {
-			fmt.Println(err);
+			fmt.Println(err)
 			return nil, err
 		}
-	
+
 		return &ThriftSocketClient{
-			Client: client,
-			Socket: socket,
-			Parent: forPool,
+			Client:         client,
+			Socket:         socket,
+			Parent:         forPool,
 			LostConnection: false,
-		}, nil		
+		}, nil
 	}
 
 }
 
 type ThriftPool struct {
-	CreatorFunc  ThriftCreator
-	Close ThriftClientClose
+	CreatorFunc ThriftCreator
+	Close       ThriftClientClose
 
 	lock        *sync.Mutex
 	idle        list.List
@@ -134,24 +133,24 @@ type ThriftPool struct {
 
 type ThriftSocketClient struct {
 	Socket *thrift.TSocket
-	
-	Client interface{}
-	Parent *ThriftPool
+
+	Client         interface{}
+	Parent         *ThriftPool
 	LostConnection bool
 }
 
 //Client can return itself to pool without caring about which pool is managing it
-func (pClient* ThriftSocketClient) BackToPool() {
-	if (pClient.Parent != nil && pClient.LostConnection == false) {
-		pClient.Parent.Put(pClient);
+func (pClient *ThriftSocketClient) BackToPool() {
+	if pClient.Parent != nil && pClient.LostConnection == false {
+		pClient.Parent.Put(pClient)
 	}
 }
 
-func (pClient* ThriftSocketClient) VerifyConnection(errMsg *string) {
-	if strings.Contains(*errMsg, "EOF") || strings.Contains(*errMsg,"broken pipe") {
+func (pClient *ThriftSocketClient) VerifyConnection(errMsg *string) {
+	if strings.Contains(*errMsg, "EOF") || strings.Contains(*errMsg, "broken pipe") {
 		fmt.Printf("thrift socket lost connection: %v , err: %s \n", pClient.Socket.Addr().String(), *errMsg)
 	}
-	pClient.LostConnection = true;
+	pClient.LostConnection = true
 }
 
 type idleConn struct {
@@ -174,7 +173,7 @@ func NewThriftPool(ip, port string,
 	creatorFunc ThriftCreator, closeFunc ThriftClientClose) *ThriftPool {
 
 	thriftPool := &ThriftPool{
-		CreatorFunc:        creatorFunc,
+		CreatorFunc: creatorFunc,
 		Close:       closeFunc,
 		ip:          ip,
 		port:        port,
@@ -245,7 +244,7 @@ func (p *ThriftPool) Put(client *ThriftSocketClient) error {
 	p.lock.Lock()
 	if p.closed {
 		p.lock.Unlock()
-		
+
 		err := p.Close(client)
 		client = nil
 		return err
@@ -254,7 +253,7 @@ func (p *ThriftPool) Put(client *ThriftSocketClient) error {
 	if p.count > p.maxConn {
 		p.count -= 1
 		p.lock.Unlock()
-		
+
 		err := p.Close(client)
 		client = nil
 		return err
@@ -263,7 +262,7 @@ func (p *ThriftPool) Put(client *ThriftSocketClient) error {
 	if !client.Check() {
 		p.count -= 1
 		p.lock.Unlock()
-		
+
 		err := p.Close(client)
 		client = nil
 		return err
@@ -372,10 +371,10 @@ func (p *ThriftPool) Recover() {
 
 /*
 	MapPool map enpoint(host:port) to a pool for a specific service
- */
+*/
 type MapPool struct {
-	CreatorFunc  ThriftCreator
-	Close ThriftClientClose
+	CreatorFunc ThriftCreator
+	Close       ThriftClientClose
 
 	lock *sync.Mutex
 
@@ -390,7 +389,7 @@ func NewMapPool(maxConn, connTimeout, idleTimeout uint32,
 	creatorFunc ThriftCreator, closeFunc ThriftClientClose) *MapPool {
 
 	return &MapPool{
-		CreatorFunc:        creatorFunc,
+		CreatorFunc: creatorFunc,
 		Close:       closeFunc,
 		maxConn:     maxConn,
 		idleTimeout: idleTimeout,
@@ -413,6 +412,22 @@ func (mp *MapPool) getServerPool(ip, port string) (*ThriftPool, error) {
 	return serverPool, nil
 }
 
+func (mp *MapPool) NewGet(ip, port string) *ThriftPool {
+	addr := fmt.Sprintf("%s:%s", ip, port)
+	serverPool := NewThriftPool(ip,
+		port,
+		mp.maxConn,
+		mp.connTimeout,
+		mp.idleTimeout,
+		mp.CreatorFunc,
+		mp.Close,
+	)
+	mp.lock.Lock()
+	mp.pools[addr] = serverPool
+	mp.lock.Unlock()
+	return serverPool
+}
+
 func (mp *MapPool) Get(ip, port string) *ThriftPool {
 	serverPool, err := mp.getServerPool(ip, port)
 	if err != nil {
@@ -429,6 +444,7 @@ func (mp *MapPool) Get(ip, port string) *ThriftPool {
 		mp.pools[addr] = serverPool
 		mp.lock.Unlock()
 	}
+
 	return serverPool
 }
 
